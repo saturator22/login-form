@@ -49,6 +49,8 @@ public class Cookie implements HttpHandler {
                 User userToCompare = userDAO.getUserByLogin(accesingUser.login);
 
                 response = loginValidation(accesingUser, userToCompare, cookie);
+
+                System.out.println(response);
             }
         }
 
@@ -62,8 +64,6 @@ public class Cookie implements HttpHandler {
             InputStreamReader isr = new InputStreamReader(httpExchange.getRequestBody(), "utf-8");
             BufferedReader br = new BufferedReader(isr);
             String formData = br.readLine();
-
-            System.out.println(formData);
             Map inputs = parseFormData(formData);
 
             return inputs;
@@ -105,7 +105,6 @@ public class Cookie implements HttpHandler {
 
         if (cookieStr != null) {  // Cookie already exists
             cookie = HttpCookie.parse(cookieStr).get(0);
-            System.out.println(cookie.toString());
         } else { // Create a new cookie
             cookie = new HttpCookie("sessionId", String.valueOf(sessionID));
             httpExchange.getResponseHeaders().add("Set-Cookie", cookie.toString());
@@ -136,6 +135,7 @@ public class Cookie implements HttpHandler {
             // We have to decode the value because it's urlencoded. see: https://en.wikipedia.org/wiki/POST_(HTTP)#Use_for_submitting_web_forms
             String value = new URLDecoder().decode(keyValue[1], "UTF-8");
             map.put(keyValue[0], value);
+            System.out.println(keyValue[0] + " " + keyValue[1]);
         }
         return map;
     }
