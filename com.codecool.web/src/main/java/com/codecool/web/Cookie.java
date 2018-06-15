@@ -10,48 +10,55 @@ import org.jtwig.JtwigTemplate;
 import java.io.*;
 import java.net.HttpCookie;
 import java.net.URLDecoder;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 
 public class Cookie implements HttpHandler {
-    int counter = 0;
+    Map<String, String> sessionIDs = new HashMap<>();
 
     @Override
     public void handle(HttpExchange httpExchange) throws IOException {
-        UUID sessionID = UUID.randomUUID();
-        counter++;
-
         String method = httpExchange.getRequestMethod();
         String response = "";
+        HttpCookie cookie = null;
 
-        String cookieStr = httpExchange.getRequestHeaders().getFirst("Cookie");
-        HttpCookie cookie;
+        cookie = getCookie(httpExchange, cookie);
 
         userDAO userDAO = new userDAO();
-
-        if (cookieStr != null) {  // Cookie already exists
-            cookie = HttpCookie.parse(cookieStr).get(0);
-            System.out.println(cookie.toString());
-        } else { // Create a new cookie
-            cookie = new HttpCookie("sessionId", String.valueOf(sessionID)); // This isn't a good way to create sessionId. Find out better!
-            httpExchange.getResponseHeaders().add("Set-Cookie", cookie.toString());
-        }
-
         // Send a form if it wasn't submitted yet.
         if(method.equals("GET")){
 
-            JtwigTemplate template = JtwigTemplate.classpathTemplate("templates/loginpage.twig");
+            if(isSessionValid(sessionIDs, cookie)) {
+                String login = sessionIDs.get(cookie.toString());
+                User loggedUser = userDAO.getUserByLogin(login);
 
-            JtwigModel model = JtwigModel.newModel();
-
-            response = template.render(model);
+                response = getWelcomeLayout(loggedUser);
+            } else {
+                response = getLoginLayout();
+            }
         }
-
         // If the form was submitted, retrieve it's content.
         if(method.equals("POST")){
 
+            if(isSessionValid(sessionIDs, cookie)){
+                sessionIDs.remove(cookie.toString());
+
+                response = getLoginLayout();
+            } else {
+                Map inputs = getFormData(httpExchange);
+                User accesingUser = new User(inputs.get("login").toString(), inputs.get("password").toString());
+                User userToCompare = userDAO.getUserByLogin(accesingUser.login);
+
+                response = loginValidation(accesingUser, userToCompare, cookie);
+            }
+        }
+
+        httpExchange.sendResponseHeaders(200, response.length());
+        OutputStream os = httpExchange.getResponseBody();
+        os.write(response.getBytes());
+        os.close();
+    }
+
+    private Map<String, String> getFormData(HttpExchange httpExchange) throws IOException{
             InputStreamReader isr = new InputStreamReader(httpExchange.getRequestBody(), "utf-8");
             BufferedReader br = new BufferedReader(isr);
             String formData = br.readLine();
@@ -59,45 +66,66 @@ public class Cookie implements HttpHandler {
             System.out.println(formData);
             Map inputs = parseFormData(formData);
 
-            User accessingUser = new User(inputs.get("login").toString(), inputs.get("password").toString());
+            return inputs;
+    }
 
-            User userToCompare = userDAO.getUserByLogin(accessingUser.login);
-            System.out.println("Accessing User: " + accessingUser.login +
-                               "\nPassword: " + accessingUser.password +
-                               "\nUser to compare: " + userToCompare.login +
-                               "\nPassword: " + userToCompare.password);
+    private boolean isSessionValid(Map<String, String> sessionIDs, HttpCookie cookie) {
+        if(sessionIDs.containsKey(cookie.toString())) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+    private String getWelcomeLayout(User loggedUser) {
+        String response;
+        JtwigTemplate template = JtwigTemplate.classpathTemplate("templates/welcomepage.twig");
+        JtwigModel model = JtwigModel.newModel();
 
-            if(userToCompare == null || !userToCompare.password.equals(accessingUser.password)) {
-                JtwigTemplate template = JtwigTemplate.classpathTemplate("templates/loginpage.twig");
-                JtwigModel model = JtwigModel.newModel();
-                response = template.render(model);
-                response += "Type correct Login & Password <br />";
-            } else if (accessingUser.password.equals(userToCompare.password)) {
-                JtwigTemplate template = JtwigTemplate.classpathTemplate("templates/welcomepage.twig");
-                JtwigModel model = JtwigModel.newModel();
+        model.with("login", loggedUser.login);
 
-                model.with("login", accessingUser.login);
+        response = template.render(model);
 
-                response = template.render(model);
-            }
-//            Login post = new Login(inputs.get("Message").toString(), inputs.get("Name").toString(),
-//                    inputs.get("Email").toString(), null);
-//
-//            System.out.println(post.email);
-//            System.out.println(post.name);
-//            System.out.println(post.message);
+        return response;
+    }
 
-//            postDao.insertPost(post);
+    private String getLoginLayout() {
+        String response;
 
+        JtwigTemplate template = JtwigTemplate.classpathTemplate("templates/loginpage.twig");
+        JtwigModel model = JtwigModel.newModel();
+
+        response = template.render(model);
+
+        return response;
+    }
+
+    private HttpCookie getCookie(HttpExchange httpExchange, HttpCookie cookie) {
+        UUID sessionID = UUID.randomUUID();
+        String cookieStr = httpExchange.getRequestHeaders().getFirst("Cookie");
+
+        if (cookieStr != null) {  // Cookie already exists
+            cookie = HttpCookie.parse(cookieStr).get(0);
+            System.out.println(cookie.toString());
+        } else { // Create a new cookie
+            cookie = new HttpCookie("sessionId", String.valueOf(sessionID));
+            httpExchange.getResponseHeaders().add("Set-Cookie", cookie.toString());
         }
 
-        response += "Page was visited: " + counter + " times!";
-        response += "<br /> session id: " + cookie.getValue();
+        return cookie;
+    }
 
-        httpExchange.sendResponseHeaders(200, response.length());
-        OutputStream os = httpExchange.getResponseBody();
-        os.write(response.getBytes());
-        os.close();
+    private String loginValidation(User accesingUser, User userToCompare, HttpCookie cookie) {
+            String response = "";
+
+            if(userToCompare == null || !userToCompare.password.equals(accesingUser.password)) {
+                response = getLoginLayout();
+                response += "Type correct Login & Password <br />";
+            } else if (accesingUser.password.equals(userToCompare.password)) {
+                sessionIDs.put(cookie.toString(), accesingUser.login);
+
+                response = getWelcomeLayout(accesingUser);
+            }
+        return response;
     }
 
     private static Map<String, String> parseFormData(String formData) throws UnsupportedEncodingException {
