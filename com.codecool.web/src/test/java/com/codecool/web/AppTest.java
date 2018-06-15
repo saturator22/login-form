@@ -1,4 +1,4 @@
-package login-form;
+package com.codecool.web;
 
 import static org.junit.Assert.assertTrue;
 
